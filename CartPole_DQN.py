@@ -150,7 +150,6 @@ while True:
 	
 		if step % 10 == 0:
 			print('step: ' + str(step) + ' / '  + 'state: ' + state)
-		step += 1
 
 	elif step <= Num_start_training + Num_training:
 		# Training 
