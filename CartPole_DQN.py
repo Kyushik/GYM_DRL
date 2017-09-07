@@ -9,6 +9,7 @@ import numpy as np
 import copy 
 import matplotlib.pyplot as plt 
 import datetime 
+import time
 import gym
 
 env = gym.make('CartPole-v0')
@@ -190,9 +191,9 @@ while True:
 		# Update target network according to the Num_update value 
 		if step % Num_update == 0:
 			assign_network_to_target()
-
+		
 		# Get y_prediction 
-		Q_batch = output_target.eval(feed_dict = {x: observation_next_batch})
+		Q_batch = output_target.eval(feed_dict = {x: observation_next_batch})		
 		for i in range(len(minibatch)):
 			if terminal_batch[i] == True:
 				y_batch.append(reward_batch[i])

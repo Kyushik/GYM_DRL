@@ -9,6 +9,7 @@ import numpy as np
 import copy 
 import matplotlib.pyplot as plt 
 import datetime 
+import time
 import gym
 
 env = gym.make('CartPole-v0')
@@ -18,7 +19,7 @@ algorithm = 'DRQN'
 # Parameter setting 
 Num_action = 2
 Gamma = 0.99
-Learning_rate = 0.0001 
+Learning_rate = 0.00025 
 Epsilon = 1 
 Final_epsilon = 0.01 
 
@@ -27,12 +28,12 @@ Num_start_training = 5000
 Num_training = 25000
 Num_testing  = 10000 
 Num_update = 250
-Num_batch = 32
+Num_batch = 8
 Num_episode_plot = 30
 
 # DRQN Parameters
 step_size = 4
-lstm_size = 512
+lstm_size = 256
 flatten_size = 4
 
 # Initialize weights and bias 
@@ -151,16 +152,12 @@ while True:
 		
 		if step % 100 == 0:
 			print('step: ' + str(step) + ' / '  + 'state: ' + state)
-		step += 1
 
 	elif step <= Num_start_training + Num_training:
 		# Training 
 		state = 'Training'
 
 		# if random value(0 - 1) is smaller than Epsilon, action is random. Otherwise, action is the one which has the largest Q value 
-		observation_feed = np.reshape(observation, (1,4))
-		# print(len(observation_set))
-
 		if random.random() < Epsilon:
 			action = np.zeros([Num_action])
 			action[random.randint(0, Num_action - 1)] = 1.0
@@ -190,7 +187,7 @@ while True:
 					batch_end_index.append(count_minibatch)
 
 				count_minibatch += 1
-
+		
 		# Save the each batch data 
 		observation_batch      = [batch[0] for batch in minibatch]
 		action_batch           = [batch[1] for batch in minibatch]
@@ -204,17 +201,19 @@ while True:
 
 		# Get y_prediction 
 		y_batch = []
-		Q_batch = output.eval(feed_dict = {x: observation_next_batch, rnn_batch_size: Num_batch, rnn_step_size: step_size})
 		action_in = []
+
+		Q_batch = output.eval(feed_dict = {x: observation_next_batch, rnn_batch_size: Num_batch, rnn_step_size: step_size})
+
 		for count, i in enumerate(batch_end_index):
 			action_in.append(action_batch[i])
 			if terminal_batch[i] == True:
 				y_batch.append(reward_batch[i])
 			else:
 				y_batch.append(reward_batch[i] + Gamma * np.max(Q_batch[count]))
-
+		
 		train_step.run(feed_dict = {action_target: action_in, y_prediction: y_batch, x: observation_batch, rnn_batch_size: Num_batch, rnn_step_size: step_size})
-	
+
 		# Reduce epsilon at training mode 
 		if Epsilon > Final_epsilon:
 			Epsilon -= 1.0/Num_training
@@ -256,7 +255,6 @@ while True:
 	if len(observation_set) > step_size:
 		del observation_set[0]
 
-
 	# Plot average score
 	if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and state != 'Observing':
 		plt.xlabel('Episode')
@@ -290,5 +288,4 @@ while True:
 		observation_set = []
 		for i in range(step_size):
 			observation_set.append(observation)
-
 
