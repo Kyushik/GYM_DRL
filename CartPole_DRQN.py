@@ -147,7 +147,7 @@ while True:
 		action_step = np.argmax(action)
 
 		observation_next, reward, terminal, info = env.step(action_step)
-		# reward -= 5 * abs(observation_next[0])
+		reward -= 5 * abs(observation_next[0])
 		
 		if step % 100 == 0:
 			print('step: ' + str(step) + ' / '  + 'state: ' + state)
@@ -173,7 +173,7 @@ while True:
 			action_step = np.argmax(action)
 		
 		observation_next, reward, terminal, info = env.step(action_step)
-		# reward -= 5 * abs(observation_next[0])
+		reward -= 5 * abs(observation_next[0])
 
 		# Select minibatch
 		episode_batch = random.sample(Replay_memory, Num_batch)	
