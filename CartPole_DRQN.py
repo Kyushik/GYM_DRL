@@ -221,7 +221,6 @@ while True:
 	elif step < Num_start_training + Num_training + Num_testing:
 		# Testing
 		state = 'Testing'
-		observation_feed = np.reshape(observation, (1,4))
 		Q_value = output.eval(feed_dict={x: observation_set, rnn_batch_size: 1, rnn_step_size: step_size})[0]
 
 		action = np.zeros([Num_action])
