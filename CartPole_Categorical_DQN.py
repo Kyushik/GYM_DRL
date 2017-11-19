@@ -19,21 +19,21 @@ algorithm = 'Categorical_DQN'
 # Parameter setting
 Num_action = 2
 Gamma = 0.99
-Learning_rate = 0.0001
+Learning_rate = 0.00025
 Epsilon = 1
-Final_epsilon = 0.01
+Final_epsilon = 0.1
 
 Num_replay_memory = 10000
 Num_start_training = 5000
-Num_training = 15000
+Num_training = 30000
 Num_testing  = 10000
-Num_update = 150
+Num_update = 300
 Num_batch = 32
 Num_episode_plot = 20
 
 # Categorical Parameters
 Num_atom = 51
-V_min = -20
+V_min = -10
 V_max = 10
 delta_z = (V_max - V_min) / (Num_atom - 1)
 
@@ -132,9 +132,12 @@ diag = tf.tile(diag, [Num_action, 1])
 logit_final_loss = tf.matmul(logit_valid_loss, diag)
 p_loss = tf.nn.softmax(logit_final_loss)
 
-Loss = - tf.reduce_mean(tf.reduce_sum(tf.multiply(m_loss, tf.log(p_loss + 1e-10)), axis = 1))
+p_loss_log = tf.log(p_loss)
 
-train_step = tf.train.AdamOptimizer(Learning_rate).minimize(Loss)
+Loss = - tf.reduce_mean(tf.reduce_sum(tf.multiply(m_loss, tf.log(p_loss)), axis = 1))
+
+train_step = tf.train.AdamOptimizer(Learning_rate, epsilon = 1e-2 / Num_batch).minimize(Loss)
+# train_step = tf.train.AdamOptimizer(Learning_rate).minimize(Loss)
 
 # Initialize variables
 config = tf.ConfigProto()
@@ -148,6 +151,10 @@ sess.run(init)
 Replay_memory = []
 step = 1
 score = 0
+plot_y_loss = []
+plot_y_maxQ = []
+loss_list = []
+maxQ_list = []
 episode = 0
 
 data_time = str(datetime.date.today()) + '_' + str(datetime.datetime.now().hour) + '_' + str(datetime.datetime.now().minute)
@@ -157,9 +164,11 @@ action = env.action_space.sample()
 observation, reward, terminal, info = env.step(action)
 
 # Figure and figure data setting
-plt.figure(1)
+# plt.figure(1)
 plot_x = []
 plot_y = []
+
+f, (ax1, ax2, ax3) = plt.subplots(3, sharex=True)
 
 # Making replay memory
 while True:
@@ -220,20 +229,21 @@ while True:
         for i in range(len(minibatch)):
             action_max = np.argmax(Q_batch[i, :])
             if terminal_batch[i]:
-                Tz = reward_batch[i]
+                for j in range(Num_atom):
+                    Tz = reward_batch[i]
 
-                # Bounding Tz
-                if Tz >= V_max:
-                    Tz = V_max
-                elif Tz <= V_min:
-                    Tz = V_min
+                    # Bounding Tz
+                    if Tz >= V_max:
+                        Tz = V_max
+                    elif Tz <= V_min:
+                        Tz = V_min
 
-                b = (Tz - V_min) / delta_z
-                l = np.int32(np.floor(b))
-                u = np.int32(np.ceil(b))
+                    b = (Tz - V_min) / delta_z
+                    l = np.int32(np.floor(b))
+                    u = np.int32(np.ceil(b))
 
-                m_batch[i, l] += (u - b)
-                m_batch[i, u] += (b - l)
+                    m_batch[i, l] += (u - b)
+                    m_batch[i, u] += (b - l)
             else:
                 for j in range(Num_atom):
                     Tz = reward_batch[i] + Gamma * z_batch[0,j]
@@ -257,7 +267,17 @@ while True:
         	action_batch_max = np.argmax(action_batch[i])
         	action_binary[i, Num_atom * action_batch_max : Num_atom * (action_batch_max + 1)] = 1
 
-        train_step.run(feed_dict = {x:observation_batch, m_loss: m_batch, action_binary_loss: action_binary})
+        _, loss, p_log, p_test = sess.run([train_step, Loss, p_loss_log, p_loss],
+                                  feed_dict = {x:observation_batch, m_loss: m_batch, action_binary_loss: action_binary})
+
+        if np.any(np.isnan(p_log)):
+            if np.any(p_test < 0):
+                print('jojojojo')
+            print('heyhey')
+            break
+
+        loss_list.append(loss)
+        maxQ_list.append(np.max(Q_batch))
 
         # Reduce epsilon at training mode
         if Epsilon > Final_epsilon:
@@ -296,28 +316,44 @@ while True:
 
     # Plot average score
     if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and state != 'Observing':
-    	plt.xlabel('Episode')
-    	plt.ylabel('Score')
-    	plt.title('Cartpole_Categorical_DQN')
-    	plt.grid(True)
+        ax1.plot(np.average(plot_x), np.average(plot_y_loss), '*')
+        ax1.set_title('Mean Loss')
+        ax1.set_ylabel('Mean Loss')
+        ax1.hold(True)
 
-    	plt.plot(np.average(plot_x), np.average(plot_y), hold = True, marker = '*', ms = 5)
-    	plt.draw()
-    	plt.pause(0.000001)
+        ax2.plot(np.average(plot_x), np.average(plot_y),'*')
+        ax2.set_title('Mean score')
+        ax2.set_ylabel('Mean score')
+        ax2.hold(True)
 
-    	plot_x = []
-    	plot_y = []
+        ax3.plot(np.average(plot_x), np.average(plot_y_maxQ),'*')
+        ax3.set_title('Mean Max Q')
+        ax3.set_ylabel('Mean Max Q')
+        ax3.set_xlabel('Episode')
+        ax3.hold(True)
+
+        plt.draw()
+        plt.pause(0.000001)
+
+        plot_x = []
+        plot_y = []
+        plot_y_loss = []
+        plot_y_maxQ = []
 
     # Terminal
     if terminal == True:
-    	print('step: ' + str(step) + ' / '  + 'state: ' + state  + ' / '  + 'epsilon: ' + str(Epsilon) + ' / '  + 'score: ' + str(score))
+        print('step: ' + str(step) + ' / '  + 'state: ' + state  + ' / '  + 'epsilon: ' + str(Epsilon) + ' / '  + 'score: ' + str(score))
 
-    	if state != 'Observing':
-    		# data for plotting
-    		plot_x.append(episode)
-    		plot_y.append(score)
+        if state != 'Observing':
+            # data for plotting
+            plot_x.append(episode)
+            plot_y.append(score)
+            plot_y_loss.append(np.mean(loss_list))
+            plot_y_maxQ.append(np.mean(maxQ_list))
 
-    	score = 0
-    	episode += 1
+        score = 0
+        loss_list = []
+        maxQ_list = []
+        episode += 1
 
-    	observation = env.reset()
+        observation = env.reset()

@@ -1,14 +1,14 @@
-# Cartpole 
+# Cartpole
 # State  -> x, x_dot, theta, theta_dot
 # Action -> force (+1, -1)
 
-# Import modules 
-import tensorflow as tf 
+# Import modules
+import tensorflow as tf
 import random
-import numpy as np 
-import copy 
-import matplotlib.pyplot as plt 
-import datetime 
+import numpy as np
+import copy
+import matplotlib.pyplot as plt
+import datetime
 import time
 import gym
 
@@ -16,17 +16,17 @@ env = gym.make('CartPole-v0')
 game_name = 'CartPole'
 algorithm = 'DQN'
 
-# Parameter setting 
+# Parameter setting
 Num_action = 2
 Gamma = 0.99
-Learning_rate = 0.00025 
-Epsilon = 1 
-Final_epsilon = 0.01 
+Learning_rate = 0.00025
+Epsilon = 1
+Final_epsilon = 0.01
 
 Num_replay_memory = 10000
 Num_start_training = 5000
 Num_training = 15000
-Num_testing  = 10000 
+Num_testing  = 10000
 Num_update = 150
 Num_batch = 32
 Num_episode_plot = 20
@@ -35,7 +35,7 @@ first_fc  = [4, 512]
 second_fc = [512, 128]
 third_fc  = [128, Num_action]
 
-# Initialize weights and bias 
+# Initialize weights and bias
 def weight_variable(shape):
     return tf.Variable(xavier_initializer(shape))
 
@@ -50,7 +50,7 @@ def xavier_initializer(shape):
 	bound = np.sqrt(2.0 / dim_sum)
 	return tf.random_uniform(shape, minval=-bound, maxval=bound)
 
-# Assigning network variables to target network variables 
+# Assigning network variables to target network variables
 def assign_network_to_target():
 	update_wfc1 = tf.assign(w_fc1_target, w_fc1)
 	update_wfc2 = tf.assign(w_fc2_target, w_fc2)
@@ -66,10 +66,10 @@ def assign_network_to_target():
 	sess.run(update_bfc2)
 	sess.run(update_bfc3)
 
-# Input 
+# Input
 x = tf.placeholder(tf.float32, shape = [None, 4])
 
-# Densely connect layer variables 
+# Densely connect layer variables
 w_fc1 = weight_variable(first_fc)
 b_fc1 = bias_variable([first_fc[1]])
 
@@ -100,7 +100,7 @@ h_fc2_target = tf.nn.relu(tf.matmul(h_fc1_target, w_fc2_target)+b_fc2_target)
 
 output_target = tf.matmul(h_fc2_target, w_fc3_target) + b_fc3_target
 
-# Loss function and Train 
+# Loss function and Train
 action_target = tf.placeholder(tf.float32, shape = [None, Num_action])
 y_prediction = tf.placeholder(tf.float32, shape = [None])
 
@@ -119,7 +119,11 @@ sess.run(init)
 # Initial parameters
 Replay_memory = []
 step = 1
-score = 0 
+score = 0
+plot_y_loss = []
+plot_y_maxQ = []
+loss_list = []
+maxQ_list = []
 episode = 0
 
 data_time = str(datetime.date.today()) + '_' + str(datetime.datetime.now().hour) + '_' + str(datetime.datetime.now().minute)
@@ -129,135 +133,156 @@ action = env.action_space.sample()
 observation, reward, terminal, info = env.step(action)
 
 # Figure and figure data setting
-plt.figure(1)
+# plt.figure(1)
 plot_x = []
 plot_y = []
 
+f, (ax1, ax2, ax3) = plt.subplots(3, sharex=True)
+
 # Making replay memory
 while True:
-	# Rendering
-	env.render()
+    # Rendering
+    env.render()
 
-	if step <= Num_start_training:
-		state = 'Observing'
-		action = np.zeros([Num_action])
-		action[random.randint(0, Num_action - 1)] = 1.0
-		action_step = np.argmax(action)
+    if step <= Num_start_training:
+    	state = 'Observing'
+    	action = np.zeros([Num_action])
+    	action[random.randint(0, Num_action - 1)] = 1.0
+    	action_step = np.argmax(action)
 
-		observation_next, reward, terminal, info = env.step(action_step)
-		reward -= 5 * abs(observation_next[0])
+    	observation_next, reward, terminal, info = env.step(action_step)
+    	reward -= 5 * abs(observation_next[0])
 
-		Replay_memory.append([observation, action, reward, observation_next, terminal])
-	
-		if step % 10 == 0:
-			print('step: ' + str(step) + ' / '  + 'state: ' + state)
+    	Replay_memory.append([observation, action, reward, observation_next, terminal])
 
-	elif step <= Num_start_training + Num_training:
-		# Training 
-		state = 'Training'
+    	if step % 10 == 0:
+    		print('step: ' + str(step) + ' / '  + 'state: ' + state)
 
-		if len(Replay_memory) > Num_replay_memory:
-			del Replay_memory[0]
+    elif step <= Num_start_training + Num_training:
+        # Training
+        state = 'Training'
 
-		# if random value(0 - 1) is smaller than Epsilon, action is random. Otherwise, action is the one which has the largest Q value 
-		if random.random() < Epsilon:
-			action = np.zeros([Num_action])
-			action[random.randint(0, Num_action - 1)] = 1.0
-			action_step = np.argmax(action)
-				
-		else:
-			observation_feed = np.reshape(observation, (1,4))
-			Q_value = output.eval(feed_dict={x: observation_feed})[0]
-			action = np.zeros([Num_action])
-			action[np.argmax(Q_value)] = 1
-			action_step = np.argmax(action)
-		
-		observation_next, reward, terminal, info = env.step(action_step)
-		reward -= 5 * abs(observation_next[0])
+        if len(Replay_memory) > Num_replay_memory:
+        	del Replay_memory[0]
 
-		# Save experience to the Replay memory 
-		Replay_memory.append([observation, action, reward, observation_next, terminal])	
-		minibatch =  random.sample(Replay_memory, Num_batch)
+        # if random value(0 - 1) is smaller than Epsilon, action is random. Otherwise, action is the one which has the largest Q value
+        if random.random() < Epsilon:
+        	action = np.zeros([Num_action])
+        	action[random.randint(0, Num_action - 1)] = 1.0
+        	action_step = np.argmax(action)
 
-		# Save the each batch data 
-		observation_batch      = [batch[0] for batch in minibatch]
-		action_batch           = [batch[1] for batch in minibatch]
-		reward_batch           = [batch[2] for batch in minibatch]
-		observation_next_batch = [batch[3] for batch in minibatch]
-		terminal_batch 	       = [batch[4] for batch in minibatch]
+        else:
+        	observation_feed = np.reshape(observation, (1,4))
+        	Q_value = output.eval(feed_dict={x: observation_feed})[0]
+        	action = np.zeros([Num_action])
+        	action[np.argmax(Q_value)] = 1
+        	action_step = np.argmax(action)
 
-		y_batch = [] 
+        observation_next, reward, terminal, info = env.step(action_step)
+        reward -= 5 * abs(observation_next[0])
 
-		# Update target network according to the Num_update value 
-		if step % Num_update == 0:
-			assign_network_to_target()
-		
-		# Get y_prediction 
-		Q_batch = output_target.eval(feed_dict = {x: observation_next_batch})		
-		for i in range(len(minibatch)):
-			if terminal_batch[i] == True:
-				y_batch.append(reward_batch[i])
-			else:
-				y_batch.append(reward_batch[i] + Gamma * np.max(Q_batch[i]))
+        # Save experience to the Replay memory
+        Replay_memory.append([observation, action, reward, observation_next, terminal])
+        minibatch =  random.sample(Replay_memory, Num_batch)
 
-		train_step.run(feed_dict = {action_target: action_batch, y_prediction: y_batch, x: observation_batch})
+        # Save the each batch data
+        observation_batch      = [batch[0] for batch in minibatch]
+        action_batch           = [batch[1] for batch in minibatch]
+        reward_batch           = [batch[2] for batch in minibatch]
+        observation_next_batch = [batch[3] for batch in minibatch]
+        terminal_batch 	       = [batch[4] for batch in minibatch]
 
-		# Reduce epsilon at training mode 
-		if Epsilon > Final_epsilon:
-			Epsilon -= 1.0/Num_training
-		
-	elif step < Num_start_training + Num_training + Num_testing:
-		# Testing
-		state = 'Testing'
-		observation_feed = np.reshape(observation, (1,4))
-		Q_value = output.eval(feed_dict={x: observation_feed})[0]
+        y_batch = []
 
-		action = np.zeros([Num_action])
-		action[np.argmax(Q_value)] = 1
-		action_step = np.argmax(action)
-		
-		observation_next, reward, terminal, info = env.step(action_step)
+        # Update target network according to the Num_update value
+        if step % Num_update == 0:
+        	assign_network_to_target()
 
-		Epsilon = 0
+        # Get y_prediction
+        Q_batch = output_target.eval(feed_dict = {x: observation_next_batch})
+        for i in range(len(minibatch)):
+        	if terminal_batch[i] == True:
+        		y_batch.append(reward_batch[i])
+        	else:
+        		y_batch.append(reward_batch[i] + Gamma * np.max(Q_batch[i]))
 
-	else: 
-		# Test is finished
-		print('Test is finished!!')
-		plt.savefig('./Plot/' + data_time + '_' + algorithm + '_' + game_name + '.png')	
-		break
+        train_step.run(feed_dict = {action_target: action_batch, y_prediction: y_batch, x: observation_batch})
+        loss = Loss.eval(feed_dict = {action_target: action_batch, y_prediction: y_batch, x: observation_batch})
 
-	# Update parameters at every iteration	
-	step += 1
-	score += reward 
+        loss_list.append(loss)
+        maxQ_list.append(np.max(Q_batch))
 
-	observation = observation_next
+        # Reduce epsilon at training mode
+        if Epsilon > Final_epsilon:
+        	Epsilon -= 1.0/Num_training
 
-	# Plot average score
-	if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and state != 'Observing':
-		plt.xlabel('Episode')
-		plt.ylabel('Score')
-		plt.title('Cartpole_DQN')
-		plt.grid(True)
+    elif step < Num_start_training + Num_training + Num_testing:
+        # Testing
+        state = 'Testing'
+        observation_feed = np.reshape(observation, (1,4))
+        Q_value = output.eval(feed_dict={x: observation_feed})[0]
 
-		plt.plot(np.average(plot_x), np.average(plot_y), hold = True, marker = '*', ms = 5)
-		plt.draw()
-		plt.pause(0.000001)
+        action = np.zeros([Num_action])
+        action[np.argmax(Q_value)] = 1
+        action_step = np.argmax(action)
 
-		plot_x = []
-		plot_y = [] 
+        observation_next, reward, terminal, info = env.step(action_step)
 
-	# Terminal
-	if terminal == True:
-		print('step: ' + str(step) + ' / '  + 'state: ' + state  + ' / '  + 'epsilon: ' + str(Epsilon) + ' / '  + 'score: ' + str(score)) 
+        Epsilon = 0
 
-		if state != 'Observing':
-			# data for plotting
-			plot_x.append(episode)
-			plot_y.append(score)
+    else:
+        # Test is finished
+        print('Test is finished!!')
+        plt.savefig('./Plot/' + data_time + '_' + algorithm + '_' + game_name + '.png')
+        break
 
-		score = 0
-		episode += 1
-		
-		observation = env.reset()
+    # Update parameters at every iteration
+    step += 1
+    score += reward
+
+    observation = observation_next
+
+    # Plot average score
+    if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and state != 'Observing':
+        ax1.plot(np.average(plot_x), np.average(plot_y_loss), '*')
+        ax1.set_title('Mean Loss')
+        ax1.set_ylabel('Mean Loss')
+        ax1.hold(True)
+
+        ax2.plot(np.average(plot_x), np.average(plot_y),'*')
+        ax2.set_title('Mean score')
+        ax2.set_ylabel('Mean score')
+        ax2.hold(True)
+
+        ax3.plot(np.average(plot_x), np.average(plot_y_maxQ),'*')
+        ax3.set_title('Mean Max Q')
+        ax3.set_ylabel('Mean Max Q')
+        ax3.set_xlabel('Episode')
+        ax3.hold(True)
+
+        plt.draw()
+        plt.pause(0.000001)
+
+        plot_x = []
+        plot_y = []
+        plot_y_loss = []
+        plot_y_maxQ = []
 
 
+    # Terminal
+    if terminal == True:
+        print('step: ' + str(step) + ' / '  + 'state: ' + state  + ' / '  + 'epsilon: ' + str(Epsilon) + ' / '  + 'score: ' + str(score))
+
+        if state != 'Observing':
+            # data for plotting
+            plot_x.append(episode)
+            plot_y.append(score)
+            plot_y_loss.append(np.mean(loss_list))
+            plot_y_maxQ.append(np.mean(maxQ_list))
+
+        score = 0
+        loss_list = []
+        maxQ_list = []
+        episode += 1
+
+        observation = env.reset()
