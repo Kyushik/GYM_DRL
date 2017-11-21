@@ -19,22 +19,22 @@ algorithm = 'Categorical_DQN'
 # Parameter setting
 Num_action = 2
 Gamma = 0.99
-Learning_rate = 0.00025
+Learning_rate = 0.001
 Epsilon = 1
 Final_epsilon = 0.1
 
 Num_replay_memory = 10000
 Num_start_training = 5000
-Num_training = 30000
+Num_training = 15000
 Num_testing  = 10000
-Num_update = 300
+Num_update = 150
 Num_batch = 32
 Num_episode_plot = 20
 
 # Categorical Parameters
 Num_atom = 51
-V_min = -10
-V_max = 10
+V_min = -25
+V_max = 25
 delta_z = (V_max - V_min) / (Num_atom - 1)
 
 # Network Parameters
@@ -97,8 +97,8 @@ logits = tf.matmul(h_fc2, w_fc3) + b_fc3
 logits_reshape = tf.reshape(logits, [-1, Num_action, Num_atom])
 p_action = tf.nn.softmax(logits_reshape)
 z_action = tf.tile(z, [tf.shape(logits_reshape)[0] * tf.shape(logits_reshape)[1], 1])
-z_action = tf.reshape(z_action, [-1, Num_action, Num_atom])
-Q_action = tf.reduce_sum(tf.multiply(z_action, p_action), axis = 2)
+z_action_reshape = tf.reshape(z_action, [-1, Num_action, Num_atom])
+Q_action = tf.reduce_sum(tf.multiply(z_action_reshape, p_action), axis = 2)
 
 # Densely connect layer variables target
 w_fc1_target = weight_variable(first_fc)
@@ -116,9 +116,9 @@ h_fc2_target = tf.nn.relu(tf.matmul(h_fc1_target, w_fc2_target)+b_fc2_target)
 logits_target = tf.matmul(h_fc2_target, w_fc3_target) + b_fc3_target
 logits_reshape_target = tf.reshape(logits_target, [-1, Num_action, Num_atom])
 p_action_target = tf.nn.softmax(logits_reshape_target)
-z_action_target = tf.tile(z, [tf.shape(logits_reshape_target)[0] * tf.shape(logits_reshape_target)[1], 1])
-z_action_target = tf.reshape(z_action_target, [-1, Num_action, Num_atom])
-Q_action_target = tf.reduce_sum(tf.multiply(z_action_target, p_action_target), axis = 2)
+# z_action_target = tf.tile(z, [tf.shape(logits_reshape_target)[0] * tf.shape(logits_reshape_target)[1], 1])
+# z_action_target = tf.reshape(z_action_target, [-1, Num_action, Num_atom])
+# Q_action_target = tf.reduce_sum(tf.multiply(z_action_target, p_action_target), axis = 2)
 
 # Loss function and Train
 m_loss = tf.placeholder(tf.float32, shape = [Num_batch, Num_atom])
@@ -134,7 +134,10 @@ p_loss = tf.nn.softmax(logit_final_loss)
 
 p_loss_log = tf.log(p_loss)
 
-Loss = - tf.reduce_mean(tf.reduce_sum(tf.multiply(m_loss, tf.log(p_loss)), axis = 1))
+Loss = - tf.reduce_mean(tf.reduce_sum(tf.multiply(m_loss, tf.log(p_loss + 1e-20)), axis = 1))
+# Loss = - tf.reduce_sum(tf.reduce_sum(tf.multiply(m_loss, tf.log(p_loss)), axis = 1))
+
+# Loss = tf.nn.sigmoid_cross_entropy_with_logits(labels = m_loss, logits = p_loss)
 
 train_step = tf.train.AdamOptimizer(Learning_rate, epsilon = 1e-2 / Num_batch).minimize(Loss)
 # train_step = tf.train.AdamOptimizer(Learning_rate).minimize(Loss)
@@ -151,10 +154,12 @@ sess.run(init)
 Replay_memory = []
 step = 1
 score = 0
+
 plot_y_loss = []
 plot_y_maxQ = []
 loss_list = []
 maxQ_list = []
+
 episode = 0
 
 data_time = str(datetime.date.today()) + '_' + str(datetime.datetime.now().hour) + '_' + str(datetime.datetime.now().minute)
@@ -168,7 +173,8 @@ observation, reward, terminal, info = env.step(action)
 plot_x = []
 plot_y = []
 
-f, (ax1, ax2, ax3) = plt.subplots(3, sharex=True)
+# f, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(3,2, sharex=False)
+f, ax = plt.subplots(3,2, sharex=False)
 
 # Making replay memory
 while True:
@@ -261,6 +267,10 @@ while True:
                     m_batch[i, l] += p_batch[i, action_max, j] * (u - b)
                     m_batch[i, u] += p_batch[i, action_max, j] * (b - l)
 
+            sum_m_batch = np.sum(m_batch[i,:])
+            for j in range(Num_atom):
+                m_batch[i,j] = m_batch[i,j] / sum_m_batch
+
         action_binary = np.zeros([Num_batch, Num_action * Num_atom])
 
         for i in range(len(action_batch)):
@@ -270,8 +280,18 @@ while True:
         _, loss, p_log, p_test = sess.run([train_step, Loss, p_loss_log, p_loss],
                                   feed_dict = {x:observation_batch, m_loss: m_batch, action_binary_loss: action_binary})
 
+        # logits_, logits_reshape_, p_action_, z_action_, z_action_reshape_, Q_action_ = sess.run([logits, logits_reshape, p_action, z_action, z_action_reshape, Q_action], feed_dict = {x:observation_batch})
+
+        # print("Logits: " + str(logits_) + ' / ' + "shape: " + str(logits_.shape))
+        # print("logits_reshape_: " + str(logits_reshape_) + ' / ' + "shape: " + str(logits_reshape_.shape))
+        # print("p_action_: " + str(p_action_) + ' / ' + "shape: " + str(p_action_.shape))
+        # print("z_action_: " + str(z_action_) + ' / ' + "shape: " + str(z_action_.shape))
+        # print("z_action_reshape_: " + str(z_action_reshape_) + ' / ' + "shape: " + str(z_action_reshape_.shape))
+        # print("Q_action_: " + str(Q_action_) + ' / ' + "shape: " + str(Q_action_.shape))
+        # print('================================================================================================')
+
         if np.any(np.isnan(p_log)):
-            if np.any(p_test < 0):
+            if np.any((p_test < 0)):
                 print('jojojojo')
             print('heyhey')
             break
@@ -316,21 +336,45 @@ while True:
 
     # Plot average score
     if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and state != 'Observing':
-        ax1.plot(np.average(plot_x), np.average(plot_y_loss), '*')
-        ax1.set_title('Mean Loss')
-        ax1.set_ylabel('Mean Loss')
-        ax1.hold(True)
+        ax[0,0].plot(np.average(plot_x), np.average(plot_y_loss), '*')
+        ax[0,0].set_title('Mean Loss')
+        ax[0,0].set_ylabel('Mean Loss')
+        ax[0,0].hold(True)
 
-        ax2.plot(np.average(plot_x), np.average(plot_y),'*')
-        ax2.set_title('Mean score')
-        ax2.set_ylabel('Mean score')
-        ax2.hold(True)
+        ax[1,0].plot(np.average(plot_x), np.average(plot_y),'*')
+        ax[1,0].set_title('Mean score')
+        ax[1,0].set_ylabel('Mean score')
+        ax[1,0].hold(True)
 
-        ax3.plot(np.average(plot_x), np.average(plot_y_maxQ),'*')
-        ax3.set_title('Mean Max Q')
-        ax3.set_ylabel('Mean Max Q')
-        ax3.set_xlabel('Episode')
-        ax3.hold(True)
+        ax[2,0].plot(np.average(plot_x), np.average(plot_y_maxQ),'*')
+        ax[2,0].set_title('Mean Max Q')
+        ax[2,0].set_ylabel('Mean Max Q')
+        ax[2,0].set_xlabel('Episode')
+        ax[2,0].hold(True)
+
+        ax[0,1].clear()
+        ax[0,1].hold(True)
+        ax[0,1].plot(z_batch[0,:], p_test[0,:],'b')
+        ax[0,1].plot(z_batch[0,:], m_batch[0,:],'r')
+        ax[0,1].set_title('Distributions')
+        ax[0,1].set_ylabel('Distributions')
+        ax[0,1].set_xlabel('bins')
+
+        ax[1,1].clear()
+        ax[1,1].hold(True)
+        ax[1,1].plot(z_batch[0,:], p_test[1,:],'b')
+        ax[1,1].plot(z_batch[0,:], m_batch[1,:],'r')
+        ax[1,1].set_title('Distributions')
+        ax[1,1].set_ylabel('Distributions')
+        ax[1,1].set_xlabel('bins')
+
+        ax[2,1].clear()
+        ax[2,1].hold(True)
+        ax[2,1].plot(z_batch[0,:], p_test[2,:],'b')
+        ax[2,1].plot(z_batch[0,:], m_batch[2,:],'r')
+        ax[2,1].set_title('Distributions')
+        ax[2,1].set_ylabel('Distributions')
+        ax[2,1].set_xlabel('bins')
 
         plt.draw()
         plt.pause(0.000001)
