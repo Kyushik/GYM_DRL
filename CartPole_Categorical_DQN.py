@@ -33,8 +33,8 @@ Num_episode_plot = 20
 
 # Categorical Parameters
 Num_atom = 51
-V_min = -25
-V_max = 25
+V_min = -25.0
+V_max = 25.0
 delta_z = (V_max - V_min) / (Num_atom - 1)
 
 # Network Parameters
@@ -97,7 +97,7 @@ logits = tf.matmul(h_fc2, w_fc3) + b_fc3
 logits_reshape = tf.reshape(logits, [-1, Num_action, Num_atom])
 p_action = tf.nn.softmax(logits_reshape)
 z_action = tf.tile(z, [tf.shape(logits_reshape)[0] * tf.shape(logits_reshape)[1], 1])
-z_action_reshape = tf.reshape(z_action, [-1, Num_action, Num_atom])
+z_action_reshape = tf.cast(tf.reshape(z_action, [-1, Num_action, Num_atom]), tf.float32)
 Q_action = tf.reduce_sum(tf.multiply(z_action_reshape, p_action), axis = 2)
 
 # Densely connect layer variables target
@@ -116,9 +116,6 @@ h_fc2_target = tf.nn.relu(tf.matmul(h_fc1_target, w_fc2_target)+b_fc2_target)
 logits_target = tf.matmul(h_fc2_target, w_fc3_target) + b_fc3_target
 logits_reshape_target = tf.reshape(logits_target, [-1, Num_action, Num_atom])
 p_action_target = tf.nn.softmax(logits_reshape_target)
-# z_action_target = tf.tile(z, [tf.shape(logits_reshape_target)[0] * tf.shape(logits_reshape_target)[1], 1])
-# z_action_target = tf.reshape(z_action_target, [-1, Num_action, Num_atom])
-# Q_action_target = tf.reduce_sum(tf.multiply(z_action_target, p_action_target), axis = 2)
 
 # Loss function and Train
 m_loss = tf.placeholder(tf.float32, shape = [Num_batch, Num_atom])
@@ -279,22 +276,6 @@ while True:
 
         _, loss, p_log, p_test = sess.run([train_step, Loss, p_loss_log, p_loss],
                                   feed_dict = {x:observation_batch, m_loss: m_batch, action_binary_loss: action_binary})
-
-        # logits_, logits_reshape_, p_action_, z_action_, z_action_reshape_, Q_action_ = sess.run([logits, logits_reshape, p_action, z_action, z_action_reshape, Q_action], feed_dict = {x:observation_batch})
-
-        # print("Logits: " + str(logits_) + ' / ' + "shape: " + str(logits_.shape))
-        # print("logits_reshape_: " + str(logits_reshape_) + ' / ' + "shape: " + str(logits_reshape_.shape))
-        # print("p_action_: " + str(p_action_) + ' / ' + "shape: " + str(p_action_.shape))
-        # print("z_action_: " + str(z_action_) + ' / ' + "shape: " + str(z_action_.shape))
-        # print("z_action_reshape_: " + str(z_action_reshape_) + ' / ' + "shape: " + str(z_action_reshape_.shape))
-        # print("Q_action_: " + str(Q_action_) + ' / ' + "shape: " + str(Q_action_.shape))
-        # print('================================================================================================')
-
-        if np.any(np.isnan(p_log)):
-            if np.any((p_test < 0)):
-                print('jojojojo')
-            print('heyhey')
-            break
 
         loss_list.append(loss)
         maxQ_list.append(np.max(Q_batch))
