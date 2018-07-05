@@ -11,3 +11,4 @@ The codes that I implemented is as follows.
 - Deep Q Network (DQN) (CartPole)
 - Deep Recurrent Q Network (DRQN) (CartPole)
 - Categorical DQN (C51) (CartPole) -> In progress... :pencil2:
+- Deep Deterministic Policy Gradient (DDPG) (Inverted Pendulum) -> In progress... ✏️
