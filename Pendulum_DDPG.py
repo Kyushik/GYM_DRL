@@ -1,4 +1,4 @@
-# Cartpole
+# Pendulum
 # State  -> x, x_dot, theta, theta_dot
 # Action -> force (+1, -1)
 
@@ -8,10 +8,10 @@ import random
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
-import datetime
 import gym
 import time
 
+# Environment Setting
 env = gym.make('Pendulum-v0')
 game_name = 'Pendulum'
 algorithm = 'DDPG'
@@ -20,7 +20,7 @@ algorithm = 'DDPG'
 Num_action = 1
 Gamma = 0.99
 Learning_rate_actor  = 0.0001
-Learning_rate_critic = 0.0005
+Learning_rate_critic = 0.001
 
 Num_training = 100000
 Num_testing  = 10000
@@ -142,11 +142,23 @@ trainable_variables = tf.trainable_variables()
 trainable_variables_actor = [var for var in trainable_variables if var.name.startswith('network_actor')]
 trainable_variables_critic = [var for var in trainable_variables if var.name.startswith('network_critic')]
 
-opt_actor  = tf.train.AdamOptimizer(learning_rate = Learning_rate_actor)
-opt_critic = tf.train.AdamOptimizer(learning_rate = Learning_rate_critic)
+# opt_actor  = tf.train.AdamOptimizer(learning_rate = Learning_rate_actor)
+# opt_critic = tf.train.AdamOptimizer(learning_rate = Learning_rate_critic)
 
-train_critic = opt_critic.minimize(Loss_critic, var_list = trainable_variables_critic)
-train_actor  = opt_actor.minimize(Loss_actor, var_list = trainable_variables_actor)
+# train_critic = opt_critic.minimize(Loss_critic, var_list = trainable_variables_critic)
+# train_actor  = opt_actor.minimize(Loss_actor, var_list = trainable_variables_actor)
+
+# Gradient clipping for preventing nan
+opt_actor = tf.train.AdamOptimizer(learning_rate = Learning_rate_actor)
+gvs_actor = opt_actor.compute_gradients(Loss_actor, var_list = trainable_variables_actor)
+capped_gvs_actor = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs_actor]
+train_actor = opt_actor.apply_gradients(capped_gvs_actor)
+
+# Gradient clipping for preventing nan
+opt_critic = tf.train.AdamOptimizer(learning_rate = Learning_rate_critic)
+gvs_critic = opt_critic.compute_gradients(Loss_critic, var_list = trainable_variables_critic)
+capped_gvs_critic = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs_critic]
+train_critic = opt_critic.apply_gradients(capped_gvs_critic)
 
 # Initialize variables
 config = tf.ConfigProto()
@@ -160,8 +172,6 @@ sess.run(init)
 step = 1
 score = 0
 episode = 0
-
-data_time = str(datetime.date.today()) + '_' + str(datetime.datetime.now().hour) + '_' + str(datetime.datetime.now().minute)
 
 state = env.reset()
 action = env.action_space.sample()
@@ -210,17 +220,13 @@ while True:
 
         # Experience replay
         if len(replay_memory) >= Num_replay_memory:
-        	del replay_memory[0]
+            del replay_memory[0]
 
         replay_memory.append([state, action, reward, state_next, terminal])
 
         if episode > Num_start_train_episode:
             # Select minibatch
             minibatch =  random.sample(replay_memory, Num_batch)
-
-            # current_time = time.time()
-            # print('action_actor: ' + str(action_actor))
-            # print('noise_UL: ' + str(noise_UL))
 
             # Save the each batch data
             state_batch      = [batch[0] for batch in minibatch]
@@ -235,19 +241,15 @@ while True:
 
             target_batch = []
 
-            # print('time1: ' + str(time.time() - current_time))
-            # current_time = time.time()
-
             for i in range(len(minibatch)):
-            	if terminal == True:
-            		target_batch.append(reward_batch[i])
-            	else:
-            		target_batch.append(reward_batch[i] + Gamma * np.max(Q_batch[i]))
+                if terminal == True:
+                    target_batch.append(reward_batch[i])
+                else:
+                    target_batch.append(reward_batch[i] + Gamma * np.max(Q_batch[i]))
 
             _, loss_critic = sess.run([train_critic, Loss_critic], feed_dict = {target_critic: target_batch, x: state_batch, action_in: output_actor_batch, is_train_actor: False})
             train_actor.run(feed_dict = {x: state_batch, is_train_actor: True})
 
-            # print('time2: ' + str(time.time() - current_time))
             # current_time = time.time()
 
             # Update Target Network
@@ -255,14 +257,17 @@ while True:
             plot_loss.append(loss_critic)
             plot_Q.append(np.mean(Q_batch))
 
-            if step % (Num_training / 100) == 0:
+            # for i in range(len(trainable_vars_network)):
+                # trainable_vars_target[i] = trainable_vars_network[i]
+                # trainable_vars_target[i] = tau * trainable_vars_network[i] + (1-tau) * trainable_vars_target[i]
+            if step % (Num_training / 1000) == 0:
                 for i in range(len(trainable_vars_network)):
                     sess.run(tf.assign(trainable_vars_target[i], trainable_vars_network[i]))
-
-                # sess.run(tf.assign(trainable_vars_target[i], tau * trainable_vars_network[i] + (1-tau) * trainable_vars_target[i]))
-                #
-                # sess.run(tf.assign(trainable_vars_tar_critic[i],
-                #                         tau * trainable_vars_net_critic[i] + (1-tau) * trainable_vars_tar_critic[i]))
+                    # trainable_vars_target[i] = trainable_vars_network[i]
+            # sess.run(tf.assign(trainable_vars_target[i], tau * trainable_vars_network[i] + (1-tau) * trainable_vars_target[i]))
+            
+            # sess.run(tf.assign(trainable_vars_tar_critic[i],
+            #                         tau * trainable_vars_net_critic[i] + (1-tau) * trainable_vars_tar_critic[i]))
 
             # print('time3: ' + str(time.time() - current_time))
 
@@ -277,10 +282,10 @@ while True:
 
         state_next, reward, terminal, info = env.step(action)
     else:
-    	# Training is finished
-    	print('Training is finished!!')
-    	plt.savefig('./Plot/' + data_time + '_' + algorithm + '_' + game_name + '.png')
-    	break
+        # Training is finished
+        print('Training is finished!!')
+        plt.savefig('./Plot/' + data_time + '_' + algorithm + '_' + game_name + '.png')
+        break
 
     # Update parameters at every iteration
     step += 1
@@ -291,51 +296,51 @@ while True:
     # Plot average score
     if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and progress != 'Observing':
         plt.figure(1)
-    	plt.xlabel('Episode')
-    	plt.ylabel('Score')
-    	plt.title('Inverted Pendulum ' + algorithm)
-    	plt.grid(True)
+        plt.xlabel('Episode')
+        plt.ylabel('Score')
+        plt.title('Average Score ' + algorithm)
+        plt.grid(True)
 
-    	plt.plot(np.average(plot_x), np.average(plot_y), hold = True, marker = '*', ms = 5)
+        plt.plot(np.average(plot_x), np.average(plot_y), hold = True, marker = '*', ms = 5)
 
-    	plt.draw()
-    	plt.pause(0.000001)
+        plt.draw()
+        plt.pause(0.000001)
 
         plt.figure(2)
-    	plt.xlabel('Episode')
-    	plt.ylabel('Loss')
-    	plt.title('Inverted Pendulum ' + algorithm)
-    	plt.grid(True)
+        plt.xlabel('Episode')
+        plt.ylabel('Loss')
+        plt.title('Critic Loss ' + algorithm)
+        plt.grid(True)
         plt.plot(np.average(plot_x), np.average(plot_loss), hold = True, marker = 'o', ms = 5)
 
-    	plt.draw()
-    	plt.pause(0.000001)
+        plt.draw()
+        plt.pause(0.000001)
 
         plt.figure(3)
-    	plt.xlabel('Episode')
-    	plt.ylabel('Q-value')
-    	plt.title('Inverted Pendulum ' + algorithm)
-    	plt.grid(True)
+        plt.xlabel('Episode')
+        plt.ylabel('Q-value')
+        plt.title('Q_value ' + algorithm)
+        plt.grid(True)
         plt.plot(np.average(plot_x), np.average(plot_Q), hold = True, marker = 'd', ms = 5)
 
-    	plt.draw()
-    	plt.pause(0.000001)
+        plt.draw()
+        plt.pause(0.000001)
 
-    	plot_x = []
-    	plot_y = []
+        plot_x = []
+        plot_y = []
         plot_loss = []
         plot_Q = []
 
     # Terminal
     if terminal == True:
-    	print('step: ' + str(step) + ' / '  + 'episode: ' + str(episode) + ' / '  + 'state: ' + progress  + ' / '  + 'score: ' + str(score))
+        print('step: ' + str(step) + ' / '  + 'episode: ' + str(episode) + ' / '  + 'state: ' + progress  + ' / '  + 'score: ' + str(score))
 
-    	if progress != 'Observing':
-    		# data for plotting
-    		plot_x.append(episode)
-    		plot_y.append(score)
+        if progress != 'Observing':
+            # data for plotting
+            plot_x.append(episode)
+            plot_y.append(score)
 
-    	score = 0
-    	episode += 1
+        score = 0
+        episode += 1
 
-    	state = env.reset()
+        state = env.reset()

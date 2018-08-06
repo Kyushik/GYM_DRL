@@ -1,0 +1,6 @@
+# Folder
+Plot/
+
+# python
+*.pyc
+.ipynb_checkpoints/
