@@ -10,5 +10,5 @@ The codes that I implemented is as follows.
 - Actor Critic (CartPole)
 - Deep Q Network (DQN) (CartPole)
 - Deep Recurrent Q Network (DRQN) (CartPole)
-- Categorical DQN (C51) (CartPole) -> In progress... :pencil2:
+- Categorical DQN (C51) (CartPole) 
 - Deep Deterministic Policy Gradient (DDPG) (Inverted Pendulum) -> In progress... ✏️
