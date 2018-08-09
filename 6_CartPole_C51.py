@@ -87,9 +87,7 @@ h_fc2 = tf.nn.relu(tf.matmul(h_fc1, w_fc2)+b_fc2)
 logits = tf.matmul(h_fc2, w_fc3) + b_fc3
 logits_reshape = tf.reshape(logits, [-1, Num_action, Num_atom])
 p_action = tf.nn.softmax(logits_reshape)
-z_action = tf.tile(z, [tf.shape(logits_reshape)[0] * tf.shape(logits_reshape)[1], 1])
-z_action_reshape = tf.cast(tf.reshape(z_action, [-1, Num_action, Num_atom]), tf.float32)
-Q_action = tf.reduce_sum(tf.multiply(z_action_reshape, p_action), axis = 2)
+Q_action = tf.reduce_sum(tf.multiply(z, p_action), axis = 2)
 
 # Densely connect layer variables target
 with tf.variable_scope('target'): 
