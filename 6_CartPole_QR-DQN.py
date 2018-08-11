@@ -79,9 +79,8 @@ h_fc1 = tf.nn.relu(tf.matmul(x, w_fc1)+b_fc1)
 h_fc2 = tf.nn.relu(tf.matmul(h_fc1, w_fc2)+b_fc2)
 
 logits = tf.matmul(h_fc2, w_fc3) + b_fc3
-Q_network = tf.multiply(1/Num_quantile, logits)
-Q_network = tf.reshape(Q_network, [-1, Num_action, Num_quantile])
-Q_network = tf.reduce_sum(Q_network, axis = 2)
+logits_reshape = tf.reshape(logits, [-1, Num_action, Num_quantile])
+Q_network = tf.reduce_sum(tf.multiply(1/Num_quantile, logits_reshape), axis = 2)
 
 # Densely connect layer variables target
 with tf.variable_scope('target'): 
@@ -98,18 +97,15 @@ h_fc1_target = tf.nn.relu(tf.matmul(x, w_fc1_target)+b_fc1_target)
 h_fc2_target = tf.nn.relu(tf.matmul(h_fc1_target, w_fc2_target)+b_fc2_target)
 
 logits_target = tf.matmul(h_fc2_target, w_fc3_target) + b_fc3_target
-logits_target = tf.reshape(logits_target, [-1, Num_action, Num_quantile])
+logits_target_reshape = tf.reshape(logits_target, [-1, Num_action, Num_quantile])
 
 # Loss function and Train
 theta_loss = tf.placeholder(tf.float32, shape = [None, Num_quantile])
-action_binary_loss = tf.placeholder(tf.float32, shape = [None, Num_action * Num_quantile])
+action_binary_loss = tf.placeholder(tf.float32, shape = [None, Num_action, Num_quantile])
 
 # Get valid logits 
-logit_valid = tf.multiply(logits, action_binary_loss)
-logit_valid_reshape = tf.reshape(logit_valid, [-1, Num_action, Num_quantile])
-logit_valid_nonzero = tf.reduce_sum(logit_valid_reshape, axis = 1)
-
-error_loss = theta_loss - logit_valid_nonzero
+logit_valid = tf.multiply(logits_reshape, action_binary_loss)
+logit_valid_nonzero = tf.reduce_sum(logit_valid, axis = 1)
 
 # Get Huber loss
 Huber_loss = tf.losses.huber_loss(theta_loss, logit_valid_nonzero, reduction = tf.losses.Reduction.NONE)
@@ -121,6 +117,8 @@ tau = tf.reshape (tf.range(min_tau, max_tau, 1/Num_quantile), [1, Num_quantile])
 inv_tau = 1.0 - tau 
 
 # Get Loss
+error_loss = theta_loss - logit_valid_nonzero
+
 Loss = tf.where(tf.less(error_loss, 0.0), inv_tau * Huber_loss, tau * Huber_loss)
 Loss = tf.reduce_mean(tf.reduce_sum(Loss, axis = 1))
 
@@ -208,15 +206,15 @@ while True:
         state_next_batch = [batch[3] for batch in minibatch]
         terminal_batch 	 = [batch[4] for batch in minibatch]
 
-        theta_target = []
-
         # Update target network according to the Num_update value
         if step % Num_update == 0:
             assign_network_to_target()
 
-        # Get y_prediction
+        # Get target supports
+        theta_target = []
+        
         Q_batch = Q_network.eval(feed_dict = {x: state_next_batch})
-        theta_batch = logits_target.eval(feed_dict = {x: state_next_batch})
+        theta_batch = logits_target_reshape.eval(feed_dict = {x: state_next_batch})
 
         for i in range(len(minibatch)):
             theta_target.append([])
@@ -227,11 +225,11 @@ while True:
                     theta_target[i].append(reward_batch[i] + Gamma * theta_batch[i, np.argmax(Q_batch[i]), j])
 
         # Calculate action binary
-        action_binary = np.zeros([Num_batch, Num_action * Num_quantile])
+        action_binary = np.zeros([Num_batch, Num_action, Num_quantile])
 
         for i in range(len(action_batch)):
-        	action_batch_max = np.argmax(action_batch[i])
-        	action_binary[i, Num_quantile * action_batch_max : Num_quantile * (action_batch_max + 1)] = 1
+            action_batch_max = np.argmax(action_batch[i])
+            action_binary[i, action_batch_max, :] = 1
 
         loss, _ = sess.run([Loss, train_step], feed_dict = {action_binary_loss: action_binary, 
                                                             theta_loss: theta_target, 
