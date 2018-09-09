@@ -107,8 +107,11 @@ action_binary_loss = tf.placeholder(tf.float32, shape = [None, Num_action, Num_q
 logit_valid = tf.multiply(logits_reshape, action_binary_loss)
 logit_valid_nonzero = tf.reduce_sum(logit_valid, axis = 1)
 
+theta_loss_tile = tf.tile(tf.expand_dims(theta_loss, axis=2), [1, 1, Num_quantile])
+logit_valid_tile = tf.tile(tf.expand_dims(logit_valid_nonzero, axis=1), [1, Num_quantile, 1])
+
 # Get Huber loss
-Huber_loss = tf.losses.huber_loss(theta_loss, logit_valid_nonzero, reduction = tf.losses.Reduction.NONE)
+Huber_loss = tf.losses.huber_loss(theta_loss_tile, logit_valid_tile, reduction = tf.losses.Reduction.NONE)
 
 # Get tau
 min_tau = 1/(2*Num_quantile)
@@ -117,10 +120,10 @@ tau = tf.reshape (tf.range(min_tau, max_tau, 1/Num_quantile), [1, Num_quantile])
 inv_tau = 1.0 - tau 
 
 # Get Loss
-error_loss = theta_loss - logit_valid_nonzero
+error_loss = theta_loss_tile - logit_valid_tile
 
 Loss = tf.where(tf.less(error_loss, 0.0), inv_tau * Huber_loss, tau * Huber_loss)
-Loss = tf.reduce_mean(tf.reduce_sum(Loss, axis = 1))
+Loss = tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(Loss, axis = 2), axis = 1))
 
 # Train step
 train_step = tf.train.AdamOptimizer(learning_rate = Learning_rate, epsilon = 0.01/32).minimize(Loss)
