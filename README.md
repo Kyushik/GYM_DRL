@@ -13,4 +13,5 @@ The codes that I implemented is as follows.
 - Actor Critic (CartPole) [paper](https://papers.nips.cc/paper/1786-actor-critic-algorithms.pdf)
 - Categorical DQN (C51) (CartPole) [paper](https://arxiv.org/abs/1707.06887)
 - Quantile Regression DQN (QR-DQN) (CartPole) [paper](https://arxiv.org/abs/1710.10044)
+- Implicit Quantile Network (IQN) (CartPole) [paper](https://arxiv.org/abs/1806.06923)
 - Deep Deterministic Policy Gradient (DDPG) (Inverted Pendulum) [paper](https://arxiv.org/abs/1509.02971) -> In progress... ✏️
