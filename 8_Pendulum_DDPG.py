@@ -1,346 +1,285 @@
-# Pendulum
-# State  -> x, x_dot, theta, theta_dot
-# Action -> force (+1, -1)
-
-# Import modules
+import gym
+import numpy as np
 import tensorflow as tf
 import random
-import numpy as np
-import copy
 import matplotlib.pyplot as plt
-import gym
-import time
+import datetime
 
 # Environment Setting
 env = gym.make('Pendulum-v0')
 game_name = 'Pendulum'
 algorithm = 'DDPG'
 
+Num_states = env.observation_space.shape[0]
+Num_action = env.action_space.shape[0]
+action_max = 2
+
 # Parameter setting
-Num_action = 1
 Gamma = 0.99
 Learning_rate_actor  = 0.0001
 Learning_rate_critic = 0.001
 
-Num_training = 100000
+Num_start_training = 5000
+Num_training = 25000
 Num_testing  = 10000
 
-Num_batch = 32
-Num_replay_memory = 50000
-Num_start_train_episode = 50
+Num_batch = 64
+Num_replay_memory = 5000
 
-Num_episode_plot = 30
+Num_episode_plot = 10
 
-first_fc_actor  = [3, 1024]
-first_fc_critic  = [4, 1024]
-second_fc = [1024, 512]
-third_fc_actor  = [512, Num_action]
-third_fc_critic = [512, 1]
-
-# Variables for Ornstein-Uhlenbeck Process
-mu_UL = 0
-x_UL = 0
-theta_UL = 0.3
-sigma_UL = 0.5
-
-tau = 0.01
+# Network parameters
+first_fc_actor  = [Num_states, 256]
+first_fc_critic  = [Num_states + Num_action, 256]
+second_fc = [256, 128]
+third_fc_actor  = [128, Num_action]
+third_fc_critic = [128, 1]
 
 # Initialize weights and bias
-def weight_variable(shape):
-    return tf.Variable(xavier_initializer(shape))
+def weight_variable(name, shape):
+    return tf.get_variable(name, shape = shape, initializer = tf.contrib.layers.xavier_initializer())
 
-def bias_variable(shape):
-	return tf.Variable(xavier_initializer(shape))
+def bias_variable(name, shape):
+    return tf.get_variable(name, shape = shape, initializer = tf.contrib.layers.xavier_initializer())
 
-# Xavier Weights initializer
-def xavier_initializer(shape):
-	dim_sum = np.sum(shape)
-	if len(shape) == 1:
-		dim_sum += 1
-	bound = np.sqrt(2.0 / dim_sum)
-	return tf.random_uniform(shape, minval=-bound, maxval=bound)
+## Soft_update
+def Soft_update(Target_vars, Train_vars, tau = 0.001):
+	for v in range(len(Target_vars)):
+		soft_target = sess.run(Train_vars[v])*tau+sess.run(Target_vars[v])*(1-tau)
+		Target_vars[v].load(soft_target, sess)
 
-# Input
-x = tf.placeholder(tf.float32, shape = [None, 3])
-is_train_actor = tf.placeholder(tf.bool)
+## Ornstein - Uhlenbeck noise
+#https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/ou_strategy.py
+class OU_noise(object): 
+	def __init__(self, env_action, mu=0.0, theta=0.15, max_sigma=0.3, min_sigma=0.1, decay_period = 100000):
+		self.mu = mu
+		self.theta = theta
+		self.sigma = max_sigma
+		self.max_sigma = max_sigma
+		self.min_sigma = min_sigma
+		self.decay_period = decay_period
+		self.num_actions = env_action.shape[0]
+		self.action_low = env_action.low
+		self.action_high = env_action.high
+		self.reset()
 
-# Actor Network
-with tf.variable_scope('network_actor'):
-    w_fc1_actor = weight_variable(first_fc_actor)
-    b_fc1_actor = bias_variable([first_fc_actor[1]])
+	def reset(self):
+		self.state = np.zeros(self.num_actions)
 
-    w_fc2_actor = weight_variable(second_fc)
-    b_fc2_actor = bias_variable([second_fc[1]])
+	def state_update(self):
+		x = self.state
+		dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(self.num_actions)
+		self.state = x + dx
 
-    w_fc3_actor = weight_variable(third_fc_actor)
-    b_fc3_actor = bias_variable([third_fc_actor[1]])
+	def add_noise(self, action, step):
+		self.state_update()
+		state = self.state
+		self.sigma = self.max_sigma - (self.max_sigma - self.min_sigma) * min(1.0, step / self.decay_period)
+		return np.clip(action + state, self.action_low, self.action_high)
 
-h_fc1_actor = tf.nn.relu(tf.matmul(x, w_fc1_actor)+b_fc1_actor)
-h_fc2_actor = tf.nn.relu(tf.matmul(h_fc1_actor, w_fc2_actor)+b_fc2_actor)
+def Actor(x, network_name):
+	# Actor Network
+	with tf.variable_scope(network_name):
+		w_fc1_actor = weight_variable('_w_fc1', first_fc_actor)
+		b_fc1_actor = bias_variable('_b_fc1', [first_fc_actor[1]])
 
-output_actor = tf.nn.tanh(tf.matmul(h_fc2_actor, w_fc3_actor) + b_fc3_actor)
+		w_fc2_actor = weight_variable('_w_fc2', second_fc)
+		b_fc2_actor = bias_variable('_b_fc2', [second_fc[1]])
 
-with tf.variable_scope('target_actor'):
-    w_fc1_actor_target = weight_variable(first_fc_actor)
-    b_fc1_actor_target = bias_variable([first_fc_actor[1]])
+		w_fc3_actor = weight_variable('_w_fc3', third_fc_actor)
+		b_fc3_actor = bias_variable('_b_fc3', [third_fc_actor[1]])
 
-    w_fc2_actor_target = weight_variable(second_fc)
-    b_fc2_actor_target = bias_variable([second_fc[1]])
+	h_fc1_actor = tf.nn.elu(tf.matmul(x, w_fc1_actor)+b_fc1_actor)
+	h_fc2_actor = tf.nn.elu(tf.matmul(h_fc1_actor, w_fc2_actor)+b_fc2_actor)
 
-    w_fc3_actor_target = weight_variable(third_fc_actor)
-    b_fc3_actor_target = bias_variable([third_fc_actor[1]])
+	output_actor = tf.nn.tanh(tf.matmul(h_fc2_actor, w_fc3_actor) + b_fc3_actor)
+	return action_max * output_actor
 
-h_fc1_actor_target = tf.nn.relu(tf.matmul(x, w_fc1_actor_target)+b_fc1_actor_target)
-h_fc2_actor_target = tf.nn.relu(tf.matmul(h_fc1_actor_target, w_fc2_actor_target)+b_fc2_actor_target)
+def Critic(x, network_name):
+	with tf.variable_scope(network_name):
+		w_fc1_critic = weight_variable('_w_fc1', first_fc_critic)
+		b_fc1_critic = bias_variable('_b_fc1', [first_fc_critic[1]])
 
-output_actor_target = tf.nn.tanh(tf.matmul(h_fc2_actor_target, w_fc3_actor_target) + b_fc3_actor_target)
+		w_fc2_critic = weight_variable('_w_fc2', second_fc)
+		b_fc2_critic = bias_variable('_b_fc2', [second_fc[1]])
 
-action_in = tf.cond(is_train_actor, lambda: output_actor, lambda: tf.placeholder(tf.float32, shape = [None, 1]))
-input = tf.concat([x, action_in], axis = 1)
+		w_fc3_critic = weight_variable('_w_fc3', third_fc_critic)
+		b_fc3_critic = bias_variable('_b_fc3', [third_fc_critic[1]])
 
-with tf.variable_scope('network_critic'):
-    w_fc1_critic = weight_variable(first_fc_critic)
-    b_fc1_critic = bias_variable([first_fc_critic[1]])
+	# Critic Network
+	h_fc1_critic = tf.nn.elu(tf.matmul(x, w_fc1_critic)+b_fc1_critic)
+	h_fc2_critic = tf.nn.elu(tf.matmul(h_fc1_critic, w_fc2_critic)+b_fc2_critic)
 
-    w_fc2_critic = weight_variable(second_fc)
-    b_fc2_critic = bias_variable([second_fc[1]])
+	output_critic = tf.matmul(h_fc2_critic, w_fc3_critic) + b_fc3_critic
+	return output_critic
 
-    w_fc3_critic = weight_variable(third_fc_critic)
-    b_fc3_critic = bias_variable([third_fc_critic[1]])
+# Information from the network
+x = tf.placeholder(tf.float32, shape = [None, Num_states])
 
-# Critic Network
-h_fc1_critic = tf.nn.relu(tf.matmul(input, w_fc1_critic)+b_fc1_critic)
-h_fc2_critic = tf.nn.relu(tf.matmul(h_fc1_critic, w_fc2_critic)+b_fc2_critic)
+Policy = Actor(x, 'Actor_main')
+Policy_target = Actor(x, 'Actor_target')
 
-output_critic = tf.matmul(h_fc2_critic, w_fc3_critic) + b_fc3_critic
+Critic_inputs = tf.concat([Policy,x], 1)
+Critic_inputs_target = tf.concat([Policy_target,x], 1)
 
-with tf.variable_scope('target_critic'):
-    w_fc1_critic_target = weight_variable(first_fc_critic)
-    b_fc1_critic_target = bias_variable([first_fc_critic[1]])
+Q_Value = Critic(Critic_inputs, 'Critic_main')
+Q_Value_target = Critic(Critic_inputs_target, 'Critic_target')
 
-    w_fc2_critic_target = weight_variable(second_fc)
-    b_fc2_critic_target = bias_variable([second_fc[1]])
+Actor_vars = tf.trainable_variables('Actor_main')
+Actor_target_vars = tf.trainable_variables('Actor_target')
 
-    w_fc3_critic_target = weight_variable(third_fc_critic)
-    b_fc3_critic_target = bias_variable([third_fc_critic[1]])
-
-h_fc1_critic_target = tf.nn.relu(tf.matmul(input, w_fc1_critic_target)+b_fc1_critic_target)
-h_fc2_critic_target = tf.nn.relu(tf.matmul(h_fc1_critic_target, w_fc2_critic_target)+b_fc2_critic_target)
-
-output_critic_target = tf.matmul(h_fc2_critic_target, w_fc3_critic_target) + b_fc3_critic_target
+Critic_vars = tf.trainable_variables('Critic_main')
+Critic_target_vars = tf.trainable_variables('Critic_target')
 
 # Set Loss
-target_critic = tf.placeholder(tf.float32, shape = [None])
+target_critic = tf.placeholder(tf.float32, shape = [None,1])
 
-Loss_actor = -tf.reduce_mean(output_critic)
-Loss_critic = tf.reduce_mean(tf.square(target_critic - output_critic))
+actor_loss = -tf.reduce_sum(Q_Value)
+critic_loss = tf.losses.mean_squared_error(target_critic,Q_Value)
 
-# Get trainable variables
-trainable_variables = tf.trainable_variables()
+policy_optimizer = tf.train.AdamOptimizer(learning_rate = 1e-3)
+critic_optimizer = tf.train.AdamOptimizer(learning_rate = 1e-3)
 
-# network variables
-trainable_variables_actor = [var for var in trainable_variables if var.name.startswith('network_actor')]
-trainable_variables_critic = [var for var in trainable_variables if var.name.startswith('network_critic')]
+actor_train = policy_optimizer.minimize(actor_loss, var_list=Actor_vars)
+critic_train = critic_optimizer.minimize(critic_loss, var_list=Critic_vars)
 
-# opt_actor  = tf.train.AdamOptimizer(learning_rate = Learning_rate_actor)
-# opt_critic = tf.train.AdamOptimizer(learning_rate = Learning_rate_critic)
-
-# train_critic = opt_critic.minimize(Loss_critic, var_list = trainable_variables_critic)
-# train_actor  = opt_actor.minimize(Loss_actor, var_list = trainable_variables_actor)
-
-# Gradient clipping for preventing nan
-opt_actor = tf.train.AdamOptimizer(learning_rate = Learning_rate_actor)
-gvs_actor = opt_actor.compute_gradients(Loss_actor, var_list = trainable_variables_actor)
-capped_gvs_actor = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs_actor]
-train_actor = opt_actor.apply_gradients(capped_gvs_actor)
-
-# Gradient clipping for preventing nan
-opt_critic = tf.train.AdamOptimizer(learning_rate = Learning_rate_critic)
-gvs_critic = opt_critic.compute_gradients(Loss_critic, var_list = trainable_variables_critic)
-capped_gvs_critic = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs_critic]
-train_critic = opt_critic.apply_gradients(capped_gvs_critic)
-
-# Initialize variables
-config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
-
-sess = tf.InteractiveSession(config=config)
+# Init session
 init = tf.global_variables_initializer()
+sess = tf.Session()
 sess.run(init)
 
+# Initialization
+noise = OU_noise(env.action_space)
+
+state = env.reset()
+noise.reset()
+
 # Initial parameters
-step = 1
+step = 0
 score = 0
 episode = 0
 
-state = env.reset()
-action = env.action_space.sample()
-state, reward, terminal, info = env.step(action)
+data_time = str(datetime.date.today()) + '_' + str(datetime.datetime.now().hour) + '_' + str(datetime.datetime.now().minute)
 
 replay_memory = []
 
 # Figure and figure data setting
-plot_x = []
-plot_y = []
 plot_loss = []
 plot_Q = []
+loss_list = []
+maxQ_list = []
 
-step_old = 10000
+plot_x = []
+plot_y = []
 
-# Get trainable variables
-trainable_variables = tf.trainable_variables()
-# network variables
-trainable_vars_network  = [var for var in trainable_variables if var.name.startswith('network')]
+f, (ax1, ax2, ax3) = plt.subplots(3, sharex=True)
 
-# target variables
-trainable_vars_target  = [var for var in trainable_variables if var.name.startswith('target')]
-
-# Making replay memory
 while True:
-    # Rendering
-    env.render()
+	# Define progress
+	if step <= Num_start_training:
+		progress = 'Exploring'
+	elif step <= Num_start_training + Num_training:
+		progress = 'Training'
+	elif step < Num_start_training + Num_training + Num_testing:
+		progress = 'Testing'
+		env.render()
+	else:
+		# Test is finished
+		print('Test is finished!!')
+		plt.savefig('./Plot/' + data_time + '_' + algorithm + '_' + game_name + '.png')
+		break
 
-    if step <= Num_training:
-        # Training
-        progress = 'Training'
+	# Choose action
+	state = state.reshape(-1, Num_states)
+	action = sess.run(Policy, feed_dict = {x: state})
 
-        state_feed = np.reshape(state, (1,3))
+	# Add noise
+	if progress != 'Testing':
+		action = noise.add_noise(action, step)
 
-        # Do Orstein-Uhlenbeck Process
-        action_actor = 2 * output_actor.eval(feed_dict={x: state_feed})
-        noise_UL = theta_UL * (mu_UL - action_actor) + sigma_UL * np.random.randn(Num_action)
-        critic_test = output_critic.eval(feed_dict={x: state_feed, action_in: action_actor, is_train_actor: False})
+	state_next, reward, terminal, _ = env.step(action)
+	state_next = state_next.reshape(-1, Num_states)
 
-        action = action_actor + noise_UL
-        np.clip(action, -2.0, 2.0)
-        action = np.reshape(action, (Num_action))
+	# Experience replay
+	if len(replay_memory) >= Num_replay_memory:
+		del replay_memory[0]
 
-        state_next, reward, terminal, info = env.step(action)
-        state_next_feed = np.reshape(state_next, (1,3))
+	replay_memory.append([state, action, reward, state_next, terminal])
 
-        # Experience replay
-        if len(replay_memory) >= Num_replay_memory:
-            del replay_memory[0]
+	if progress == 'Training':
+		minibatch =  random.sample(replay_memory, Num_batch)
 
-        replay_memory.append([state, action, reward, state_next, terminal])
+		# Save the each batch data
+		state_batch      = [batch[0][0] for batch in minibatch]
+		action_batch     = [batch[1][0] for batch in minibatch]
+		reward_batch     = [batch[2][0] for batch in minibatch]
+		state_next_batch = [batch[3][0] for batch in minibatch]
+		terminal_batch 	 = [batch[4] for batch in minibatch]
 
-        if episode > Num_start_train_episode:
-            # Select minibatch
-            minibatch =  random.sample(replay_memory, Num_batch)
+		#Update Critic
+		y_batch = []
 
-            # Save the each batch data
-            state_batch      = [batch[0] for batch in minibatch]
-            action_batch     = [batch[1] for batch in minibatch]
-            reward_batch     = [batch[2] for batch in minibatch]
-            next_state_batch = [batch[3] for batch in minibatch]
-            terminal_batch   = [batch[4] for batch in minibatch]
+		Q_batch = sess.run(Q_Value_target, feed_dict={x:state_next_batch})
 
-            output_actor_batch = output_actor.eval(feed_dict = {x: state_batch})
-            next_output_actor_batch = output_actor_target.eval(feed_dict = {x: next_state_batch})
-            Q_batch = output_critic_target.eval(feed_dict = {x: next_state_batch, action_in: next_output_actor_batch, is_train_actor: False})
+		for i in range(Num_batch):
+			if terminal_batch[i]:
+				y_batch.append([reward_batch[i]])
+			else:
+				y_batch.append([reward_batch[i] + Gamma * Q_batch[i][0]])
 
-            target_batch = []
+		_, loss_critic = sess.run([critic_train, critic_loss], feed_dict={target_critic: y_batch, x: state_batch, Policy: action_batch})
 
-            for i in range(len(minibatch)):
-                if terminal == True:
-                    target_batch.append(reward_batch[i])
-                else:
-                    target_batch.append(reward_batch[i] + Gamma * np.max(Q_batch[i]))
+		#Update Actor
+		_, loss_actor = sess.run([actor_train, actor_loss], feed_dict={x:state_batch})
 
-            _, loss_critic = sess.run([train_critic, Loss_critic], feed_dict = {target_critic: target_batch, x: state_batch, action_in: output_actor_batch, is_train_actor: False})
-            train_actor.run(feed_dict = {x: state_batch, is_train_actor: True})
+		plot_loss.append(loss_critic)
+		plot_Q.append(np.mean(Q_batch))
 
-            # current_time = time.time()
+		##Soft Update
+		Soft_update(Actor_target_vars, Actor_vars)
+		Soft_update(Critic_target_vars, Critic_vars)
 
-            # Update Target Network
+	# Update parameters at every iteration
+	step += 1
+	score += reward[0]
 
-            plot_loss.append(loss_critic)
-            plot_Q.append(np.mean(Q_batch))
+	state = state_next
 
-            # for i in range(len(trainable_vars_network)):
-                # trainable_vars_target[i] = trainable_vars_network[i]
-                # trainable_vars_target[i] = tau * trainable_vars_network[i] + (1-tau) * trainable_vars_target[i]
-            if step % (Num_training / 1000) == 0:
-                for i in range(len(trainable_vars_network)):
-                    sess.run(tf.assign(trainable_vars_target[i], trainable_vars_network[i]))
-                    # trainable_vars_target[i] = trainable_vars_network[i]
-            # sess.run(tf.assign(trainable_vars_target[i], tau * trainable_vars_network[i] + (1-tau) * trainable_vars_target[i]))
-            
-            # sess.run(tf.assign(trainable_vars_tar_critic[i],
-            #                         tau * trainable_vars_net_critic[i] + (1-tau) * trainable_vars_tar_critic[i]))
+	# Plotting
+	if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and progress != 'Exploring':
+		ax1.plot(np.average(plot_x), np.average(plot_y), '*')
+		ax1.set_ylabel('Score')
+		ax1.set_title('Average Score ' + algorithm)
 
-            # print('time3: ' + str(time.time() - current_time))
+		ax2.plot(np.average(plot_x), np.average(plot_loss), 'o')
+		ax2.set_ylabel('Loss')
+		ax2.set_title('Critic Loss ' + algorithm)
 
-    elif step < Num_training + Num_testing:
-        # Testing
-        progress = 'Testing'
+		ax3.plot(np.average(plot_x), np.average(plot_Q), 'd')
+		ax3.set_xlabel('Episode')
+		ax3.set_ylabel('Q-value')
+		ax3.set_title('Q_value ' + algorithm)
 
-        action_actor = 2 * output_actor.eval(feed_dict={x: state_feed})
-        action = action_actor
+		plt.draw()
+		plt.pause(0.000001)
 
-        np.clip(action, -2.0, 2.0)
+		plot_x = []
+		plot_y = []
+		plot_loss = []
+		plot_Q = []
 
-        state_next, reward, terminal, info = env.step(action)
-    else:
-        # Training is finished
-        print('Training is finished!!')
-        plt.savefig('./Plot/' + data_time + '_' + algorithm + '_' + game_name + '.png')
-        break
+	# Terminal
+	if terminal:
+		print('step: ' + str(step) + ' / '  + 'episode: ' + str(episode) + ' / '  + 'state: ' + progress  + ' / '  + 'score: ' + str(score))
 
-    # Update parameters at every iteration
-    step += 1
-    score += reward
+		if progress != 'Observing':
+			# data for plotting
+			plot_x.append(episode)
+			plot_y.append(score)
+			
+		score = 0
+		episode += 1
 
-    state = state_next
+		state = env.reset()	
+		noise.reset()
 
-    # Plot average score
-    if len(plot_x) % Num_episode_plot == 0 and len(plot_x) != 0 and progress != 'Observing':
-        plt.figure(1)
-        plt.xlabel('Episode')
-        plt.ylabel('Score')
-        plt.title('Average Score ' + algorithm)
-        plt.grid(True)
-
-        plt.plot(np.average(plot_x), np.average(plot_y), hold = True, marker = '*', ms = 5)
-
-        plt.draw()
-        plt.pause(0.000001)
-
-        plt.figure(2)
-        plt.xlabel('Episode')
-        plt.ylabel('Loss')
-        plt.title('Critic Loss ' + algorithm)
-        plt.grid(True)
-        plt.plot(np.average(plot_x), np.average(plot_loss), hold = True, marker = 'o', ms = 5)
-
-        plt.draw()
-        plt.pause(0.000001)
-
-        plt.figure(3)
-        plt.xlabel('Episode')
-        plt.ylabel('Q-value')
-        plt.title('Q_value ' + algorithm)
-        plt.grid(True)
-        plt.plot(np.average(plot_x), np.average(plot_Q), hold = True, marker = 'd', ms = 5)
-
-        plt.draw()
-        plt.pause(0.000001)
-
-        plot_x = []
-        plot_y = []
-        plot_loss = []
-        plot_Q = []
-
-    # Terminal
-    if terminal == True:
-        print('step: ' + str(step) + ' / '  + 'episode: ' + str(episode) + ' / '  + 'state: ' + progress  + ' / '  + 'score: ' + str(score))
-
-        if progress != 'Observing':
-            # data for plotting
-            plot_x.append(episode)
-            plot_y.append(score)
-
-        score = 0
-        episode += 1
-
-        state = env.reset()
