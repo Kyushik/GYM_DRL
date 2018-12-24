@@ -13,7 +13,15 @@ import gym
 
 env = gym.make('CartPole-v0')
 game_name = 'CartPole'
-algorithm = 'Actor_Critic'
+algorithm = 'PPO'
+
+# PPO Parameters
+epsilon = 0.2
+lambda_gae = 0.95
+horizon = 128
+batch_size = 32
+
+
 
 # Parameter setting 
 Num_action = 2

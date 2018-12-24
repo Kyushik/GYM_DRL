@@ -51,7 +51,7 @@ def Soft_update(Target_vars, Train_vars, tau = 0.001):
 ## Ornstein - Uhlenbeck noise
 #https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/ou_strategy.py
 class OU_noise(object): 
-	def __init__(self, env_action, mu=0.0, theta=0.15, max_sigma=0.3, min_sigma=0.1, decay_period = 100000):
+	def __init__(self, env_action, mu=0.0, theta=0.15, max_sigma=0.3, min_sigma=0.1, decay_period = Num_training):
 		self.mu = mu
 		self.theta = theta
 		self.sigma = max_sigma
@@ -71,10 +71,10 @@ class OU_noise(object):
 		dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(self.num_actions)
 		self.state = x + dx
 
-	def add_noise(self, action, step):
+	def add_noise(self, action, training_step):
 		self.state_update()
 		state = self.state
-		self.sigma = self.max_sigma - (self.max_sigma - self.min_sigma) * min(1.0, step / self.decay_period)
+		self.sigma = self.max_sigma - (self.max_sigma - self.min_sigma) * min(1.0, training_step / self.decay_period)
 		return np.clip(action + state, self.action_low, self.action_high)
 
 def Actor(x, network_name):
@@ -120,7 +120,7 @@ Policy = Actor(x, 'Actor_main')
 Policy_target = Actor(x, 'Actor_target')
 
 Critic_inputs = tf.concat([Policy,x], 1)
-Critic_inputs_target = tf.concat([Policy_target,x], 1)
+Critic_inputs_target = tf.concat([Policy,x], 1)
 
 Q_Value = Critic(Critic_inputs, 'Critic_main')
 Q_Value_target = Critic(Critic_inputs_target, 'Critic_target')
@@ -156,6 +156,7 @@ noise.reset()
 
 # Initial parameters
 step = 0
+step_train = 0
 score = 0
 episode = 0
 
@@ -195,7 +196,7 @@ while True:
 
 	# Add noise
 	if progress != 'Testing':
-		action = noise.add_noise(action, step)
+		action = noise.add_noise(action, step_train)
 
 	state_next, reward, terminal, _ = env.step(action)
 	state_next = state_next.reshape(-1, Num_states)
@@ -218,7 +219,6 @@ while True:
 
 		#Update Critic
 		y_batch = []
-
 		Q_batch = sess.run(Q_Value_target, feed_dict={x:state_next_batch})
 
 		for i in range(Num_batch):
@@ -238,6 +238,8 @@ while True:
 		##Soft Update
 		Soft_update(Actor_target_vars, Actor_vars)
 		Soft_update(Critic_target_vars, Critic_vars)
+
+		step_train += 1
 
 	# Update parameters at every iteration
 	step += 1
