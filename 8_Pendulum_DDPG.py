@@ -137,8 +137,8 @@ target_critic = tf.placeholder(tf.float32, shape = [None,1])
 actor_loss = -tf.reduce_sum(Q_Value)
 critic_loss = tf.losses.mean_squared_error(target_critic,Q_Value)
 
-policy_optimizer = tf.train.AdamOptimizer(learning_rate = 1e-3)
-critic_optimizer = tf.train.AdamOptimizer(learning_rate = 1e-3)
+policy_optimizer = tf.train.AdamOptimizer(learning_rate = Learning_rate_actor)
+critic_optimizer = tf.train.AdamOptimizer(learning_rate = Learning_rate_critic)
 
 actor_train = policy_optimizer.minimize(actor_loss, var_list=Actor_vars)
 critic_train = critic_optimizer.minimize(critic_loss, var_list=Critic_vars)
