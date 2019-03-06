@@ -25,8 +25,7 @@ Final_epsilon = 0.01
 
 ################### Multi-step ###################
 # Parameter for Multi-step
-n_step = 5
-episode_step = 1
+n_step = 1
 state_list = []
 reward_list = []
 ##################################################
@@ -119,7 +118,7 @@ sess.run(init)
 # Initial parameters
 Replay_memory = []
 
-step = 1
+step = 3
 score = 0
 episode = 0
 
@@ -182,24 +181,24 @@ while True:
     state_list.append(state)
     reward_list.append(reward)
 
-    if episode_step > n_step:
-        del state_list[0]
-        del reward_list[0]
+    if len(state_list) >= n_step:
+        if len(state_list) > n_step:
+            del state_list[0]
+            del reward_list[0]
 
-    if terminal:
-        for i in range(n_step):
+        if terminal:
+            for i in range(n_step):
+                reward_sum = 0
+                for count, j in enumerate(range(i,n_step)):
+                    reward_sum += (Gamma**count) * reward_list[j]
+                Replay_memory.append([state_list[i], action, reward_sum, state_next, terminal])
+        else:
             reward_sum = 0
-            for count, j in enumerate(range(i,n_step)):
-                reward_sum += (Gamma**count) * reward_list[j]
-            Replay_memory.append([state_list[i], action, reward_sum, state_next, terminal])
-    else:
-        reward_sum = 0
-        for i in range(len(reward_list)):
-            reward_sum += (Gamma**i) * reward_list[i]
-        Replay_memory.append([state_list[0], action, reward_sum, state_next, terminal])
+            for i in range(len(reward_list)):
+                reward_sum += (Gamma**i) * reward_list[i]
+            Replay_memory.append([state_list[0], action, reward_sum, state_next, terminal])
             
     ########################################################################################
-
 
     if progress == 'Training':
         minibatch =  random.sample(Replay_memory, Num_batch)
@@ -241,7 +240,6 @@ while True:
 
     # Update parameters at every iteration
     step += 1
-    episode_step += 1
     score += reward
     state = state_next
 
@@ -291,7 +289,6 @@ while True:
         maxQ_list = []
         episode += 1
 
-        episode_step = 1
         state_list = []
         reward_list = []
 
