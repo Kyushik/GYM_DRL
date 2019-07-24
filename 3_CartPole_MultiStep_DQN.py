@@ -25,14 +25,15 @@ Final_epsilon = 0.01
 
 ################### Multi-step ###################
 # Parameter for Multi-step
-n_step = 1
+n_step = 3
 state_list = []
+action_list = []
 reward_list = []
 ##################################################
 
 Num_replay_memory = 10000
 Num_start_training = 10000
-Num_training = 15000
+Num_training = 20000
 Num_testing  = 10000
 Num_update = 150
 Num_batch = 32
@@ -118,7 +119,7 @@ sess.run(init)
 # Initial parameters
 Replay_memory = []
 
-step = 3
+step = 0
 score = 0
 episode = 0
 
@@ -179,11 +180,13 @@ while True:
     # Save experience to the Replay memory
     ###################################### Multi-step ######################################
     state_list.append(state)
+    action_list.append(action)
     reward_list.append(reward)
 
     if len(state_list) >= n_step:
         if len(state_list) > n_step:
             del state_list[0]
+            del action_list[0]
             del reward_list[0]
 
         if terminal:
@@ -191,12 +194,16 @@ while True:
                 reward_sum = 0
                 for count, j in enumerate(range(i,n_step)):
                     reward_sum += (Gamma**count) * reward_list[j]
-                Replay_memory.append([state_list[i], action, reward_sum, state_next, terminal])
+
+                if i == n_step - 1:
+                    Replay_memory.append([state_list[i], action_list[i], reward_sum, state_next, True, n_step-i])
+                else: 
+                    Replay_memory.append([state_list[i], action_list[i], reward_sum, state_next, False, n_step-i])
         else:
             reward_sum = 0
             for i in range(len(reward_list)):
                 reward_sum += (Gamma**i) * reward_list[i]
-            Replay_memory.append([state_list[0], action, reward_sum, state_next, terminal])
+            Replay_memory.append([state_list[0], action_list[0], reward_sum, state_next, terminal, n_step])
             
     ########################################################################################
 
@@ -209,6 +216,9 @@ while True:
         reward_batch     = [batch[2] for batch in minibatch]
         state_next_batch = [batch[3] for batch in minibatch]
         terminal_batch 	 = [batch[4] for batch in minibatch]
+        ###################################### Multi-step ######################################
+        nstep_batch      = [batch[5] for batch in minibatch]
+        ########################################################################################
 
         y_batch = []
 
@@ -222,7 +232,9 @@ while True:
             if terminal_batch[i] == True:
                 y_batch.append(reward_batch[i])
             else:
-                y_batch.append(reward_batch[i] + (Gamma**n_step) * np.max(Q_batch[i]))
+                ###################################### Multi-step ######################################
+                y_batch.append(reward_batch[i] + (Gamma**nstep_batch[i]) * np.max(Q_batch[i]))
+                ########################################################################################
 
         loss, _ = sess.run([Loss, train_step], feed_dict = {action_loss: action_batch, 
                                                             y_target: y_batch, 
@@ -290,6 +302,7 @@ while True:
         episode += 1
 
         state_list = []
+        action_list = []
         reward_list = []
 
         state = env.reset()
